@@ -50,6 +50,11 @@ terraform import \
   aws_dynamodb_table.terraform_locks \
   "twin-terraform-locks" 2>/dev/null || echo "  ℹ️  DynamoDB table already imported or doesn't exist"
 
+# Try to import GitHub Actions IAM role if it exists
+terraform import -var="github_repository=$GITHUB_REPO" \
+  aws_iam_role.github_actions \
+  "github-actions-twin-deploy" 2>/dev/null || echo "  ℹ️  GitHub Actions role already imported or doesn't exist"
+
 # Use prod.tfvars for production environment
 if [ "$ENVIRONMENT" = "prod" ]; then
   TF_APPLY_CMD=(terraform apply -var-file=prod.tfvars -var="project_name=$PROJECT_NAME" -var="environment=$ENVIRONMENT" -var="github_repository=$GITHUB_REPO" -auto-approve)
