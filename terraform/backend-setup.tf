@@ -9,6 +9,10 @@ resource "aws_s3_bucket" "terraform_state" {
     Environment = "global"
     ManagedBy   = "terraform"
   }
+
+  lifecycle {
+    ignore_changes = [bucket]
+  }
 }
 
 resource "aws_s3_bucket_versioning" "terraform_state" {
@@ -52,6 +56,10 @@ resource "aws_dynamodb_table" "terraform_locks" {
     Name        = "Terraform State Locks"
     Environment = "global"
     ManagedBy   = "terraform"
+  }
+
+  lifecycle {
+    ignore_changes = [name]
   }
 }
 

@@ -16,8 +16,8 @@ variable "github_repositories" {
 # Note: aws_caller_identity.current is already defined in main.tf
 
 # GitHub OIDC Provider
-# Note: If this already exists in your account, you'll need to import it:
-# terraform import aws_iam_openid_connect_provider.github arn:aws:iam::ACCOUNT_ID:oidc-provider/token.actions.githubusercontent.com
+# Note: If this already exists in your account, it will be imported automatically
+# If import fails, run: terraform import aws_iam_openid_connect_provider.github arn:aws:iam::ACCOUNT_ID:oidc-provider/token.actions.githubusercontent.com
 resource "aws_iam_openid_connect_provider" "github" {
   url = "https://token.actions.githubusercontent.com"
   
@@ -30,6 +30,11 @@ resource "aws_iam_openid_connect_provider" "github" {
   thumbprint_list = [
     "1b511abead59c6ce207077c0bf0e0043b1382612"
   ]
+
+  lifecycle {
+    # Ignore changes if the provider already exists
+    create_before_destroy = false
+  }
 }
 
 # IAM Role for GitHub Actions

@@ -31,6 +31,25 @@ fi
 # Get GitHub repository from environment or default
 GITHUB_REPO=${GITHUB_REPOSITORY:-manuetov/digital-twin}
 
+# Import existing resources if they exist (ignore errors if already imported)
+echo "🔄 Checking for existing global resources..."
+AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+
+# Try to import OIDC Provider if it exists
+terraform import -var="github_repository=$GITHUB_REPO" \
+  aws_iam_openid_connect_provider.github \
+  "arn:aws:iam::${AWS_ACCOUNT_ID}:oidc-provider/token.actions.githubusercontent.com" 2>/dev/null || echo "  ℹ️  OIDC Provider already imported or doesn't exist"
+
+# Try to import S3 bucket if it exists
+terraform import \
+  aws_s3_bucket.terraform_state \
+  "twin-terraform-state-${AWS_ACCOUNT_ID}" 2>/dev/null || echo "  ℹ️  S3 bucket already imported or doesn't exist"
+
+# Try to import DynamoDB table if it exists
+terraform import \
+  aws_dynamodb_table.terraform_locks \
+  "twin-terraform-locks" 2>/dev/null || echo "  ℹ️  DynamoDB table already imported or doesn't exist"
+
 # Use prod.tfvars for production environment
 if [ "$ENVIRONMENT" = "prod" ]; then
   TF_APPLY_CMD=(terraform apply -var-file=prod.tfvars -var="project_name=$PROJECT_NAME" -var="environment=$ENVIRONMENT" -var="github_repository=$GITHUB_REPO" -auto-approve)
