@@ -10,7 +10,7 @@ variable "github_repository" {
 variable "github_repositories" {
   description = "List of GitHub repositories allowed to assume this role (format: 'owner/repo')"
   type        = list(string)
-  default     = ["manuetov/digital-twin"]
+  default     = ["manuetov/digital-twin", "JmanT73/digital-twin"]
 }
 
 # Note: aws_caller_identity.current is already defined in main.tf
@@ -61,7 +61,7 @@ resource "aws_iam_role" "github_actions" {
   
   tags = {
     Name        = "GitHub Actions Deploy Role"
-    Repositories = join(",", var.github_repositories)
+    Repositories = length(var.github_repositories) > 1 ? "multiple" : var.github_repositories[0]
     ManagedBy   = "terraform"
   }
 }

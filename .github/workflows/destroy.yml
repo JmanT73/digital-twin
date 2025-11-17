@@ -1,0 +1,134 @@
+name: Destroy Environment
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to destroy'
+        required: true
+        type: choice
+        options:
+          - dev
+          - test
+          - prod
+      confirm:
+        description: 'Type the environment name to confirm destruction'
+        required: true
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  destroy:
+    name: Destroy ${{ github.event.inputs.environment }}
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
+    
+    steps:
+      - name: Verify confirmation
+        run: |
+          if [ "${{ github.event.inputs.confirm }}" != "${{ github.event.inputs.environment }}" ]; then
+            echo "❌ Confirmation does not match environment name!"
+            echo "You entered: '${{ github.event.inputs.confirm }}'"
+            echo "Expected: '${{ github.event.inputs.environment }}'"
+            exit 1
+          fi
+          echo "✅ Destruction confirmed for ${{ github.event.inputs.environment }}"
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Clear any existing AWS credentials
+        run: |
+          echo "🧹 Clearing any existing AWS credentials..."
+          unset AWS_ACCESS_KEY_ID
+          unset AWS_SECRET_ACCESS_KEY
+          unset AWS_SESSION_TOKEN
+          unset AWS_PROFILE
+          unset AWS_DEFAULT_REGION
+          unset AWS_REGION
+          rm -rf ~/.aws/credentials 2>/dev/null || true
+          rm -rf ~/.aws/config 2>/dev/null || true
+          echo "✅ AWS credentials cleared"
+
+      - name: Validate Secrets
+        run: |
+          echo "🔍 Validating GitHub Secrets..."
+          if [ -z "${{ secrets.AWS_ROLE_ARN }}" ]; then
+            echo "❌ ERROR: AWS_ROLE_ARN secret is empty!"
+            exit 1
+          fi
+          if [ -z "${{ secrets.AWS_ACCOUNT_ID }}" ]; then
+            echo "❌ ERROR: AWS_ACCOUNT_ID secret is empty!"
+            exit 1
+          fi
+          if [ -z "${{ secrets.DEFAULT_AWS_REGION }}" ]; then
+            echo "❌ ERROR: DEFAULT_AWS_REGION secret is empty!"
+            exit 1
+          fi
+          echo "✅ All secrets are present"
+          echo "AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}"
+          echo "AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}"
+          echo "DEFAULT_AWS_REGION: ${{ secrets.DEFAULT_AWS_REGION }}"
+          # Verify the ARN contains the correct account ID
+          if [[ "${{ secrets.AWS_ROLE_ARN }}" != *":${{ secrets.AWS_ACCOUNT_ID }}:"* ]]; then
+            echo "❌ ERROR: AWS_ROLE_ARN does not match AWS_ACCOUNT_ID!"
+            echo "ARN contains: ${{ secrets.AWS_ROLE_ARN }}"
+            echo "Expected account: ${{ secrets.AWS_ACCOUNT_ID }}"
+            exit 1
+          fi
+          echo "✅ ARN matches Account ID"
+
+      - name: Configure AWS credentials
+        id: aws-creds
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          role-session-name: github-actions-destroy-${{ github.run_id }}
+          aws-region: ${{ secrets.DEFAULT_AWS_REGION }}
+          role-duration-seconds: 3600
+
+      - name: Verify AWS Account
+        run: |
+          echo "🔍 Verifying AWS Account..."
+          echo "Expected Account ID: ${{ secrets.AWS_ACCOUNT_ID }}"
+          echo "Expected Region: ${{ secrets.DEFAULT_AWS_REGION }}"
+          echo "Role ARN: ${{ secrets.AWS_ROLE_ARN }}"
+          echo ""
+          echo "Actual AWS Identity:"
+          aws sts get-caller-identity
+          echo ""
+          ACTUAL_ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+          EXPECTED_ACCOUNT="${{ secrets.AWS_ACCOUNT_ID }}"
+          if [ "$ACTUAL_ACCOUNT" != "$EXPECTED_ACCOUNT" ]; then
+            echo "❌ ERROR: Account mismatch!"
+            echo "Expected: $EXPECTED_ACCOUNT"
+            echo "Actual: $ACTUAL_ACCOUNT"
+            exit 1
+          else
+            echo "✅ Account verified: $ACTUAL_ACCOUNT"
+          fi
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false  # Important: disable wrapper to get raw outputs
+
+      - name: Run Destroy Script
+        run: |
+          # Set environment variables for the script
+          export AWS_ACCOUNT_ID=${{ secrets.AWS_ACCOUNT_ID }}
+          export DEFAULT_AWS_REGION=${{ secrets.DEFAULT_AWS_REGION }}
+          export GITHUB_REPOSITORY=${{ github.repository }}
+          
+          # Make script executable and run it
+          chmod +x scripts/destroy.sh
+          ./scripts/destroy.sh ${{ github.event.inputs.environment }}
+        env:
+          AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
+
+      - name: Destruction Complete
+        run: |
+          echo "✅ Environment ${{ github.event.inputs.environment }} has been destroyed!"
+
