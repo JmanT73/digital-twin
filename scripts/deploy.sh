@@ -58,7 +58,33 @@ else
 fi
 
 echo "🎯 Applying Terraform..."
-"${TF_APPLY_CMD[@]}"
+# Try to apply, and if it fails due to lock, try to force unlock
+APPLY_OUTPUT=$("${TF_APPLY_CMD[@]}" 2>&1)
+APPLY_EXIT_CODE=$?
+
+if [ $APPLY_EXIT_CODE -ne 0 ]; then
+  # Check if the error is due to a state lock
+  if echo "$APPLY_OUTPUT" | grep -qi "state lock\|Error acquiring the state lock"; then
+    echo "⚠️  State lock detected. Attempting to force unlock..."
+    # Extract lock ID from error message (format: ID: cdce4c92-d07f-d090-0e59-e3ddc1b3c976)
+    LOCK_ID=$(echo "$APPLY_OUTPUT" | grep -i "ID:" | sed -n 's/.*ID:[[:space:]]*\([a-f0-9-]\+\).*/\1/p' | head -1 || echo "")
+    if [ -n "$LOCK_ID" ]; then
+      echo "  Found lock ID: $LOCK_ID"
+      echo "  Attempting to force unlock..."
+      terraform force-unlock -force "$LOCK_ID" || echo "  ⚠️  Could not unlock automatically"
+      echo "  Retrying apply..."
+      "${TF_APPLY_CMD[@]}"
+    else
+      echo "  ❌ Could not extract lock ID from error message"
+      echo "  You may need to manually unlock using: terraform force-unlock <LOCK_ID>"
+      exit 1
+    fi
+  else
+    # If it's not a lock error, show the error and exit
+    echo "$APPLY_OUTPUT"
+    exit 1
+  fi
+fi
 
 API_URL=$(terraform output -raw api_gateway_url)
 FRONTEND_BUCKET=$(terraform output -raw s3_frontend_bucket)
